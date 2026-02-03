@@ -3,9 +3,10 @@ from pyrogram import Client, filters
 from pyrogram.types import *
 import yt_dlp, os, re, asyncio, time, shutil
 
-BOT_TOKEN = "8478599778:AAExe8JshyYtDkn1-4_Pm9ULJe2oMhOUn5w"
-API_ID = 38063189
-API_HASH = "1f5b2b7bd33615a2a3f34e406dd9ecab"
+# 🔐 ENV (SAFE – hardcode করলেও চলবে, কিন্তু এটা best)
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8478599778:AAExe8JshyYtDkn1-4_Pm9ULJe2oMhOUn5w")
+API_ID = int(os.environ.get("API_ID", 38063189))
+API_HASH = os.environ.get("API_HASH", "1f5b2b7bd33615a2a3f34e406dd9ecab")
 
 OWNER_ID = 8156670159
 CHANNEL_LINK = "@SEXTYMODS"
@@ -31,7 +32,8 @@ cancel_tasks = {}
 bot_start_time = time.time()
 
 # ================= UTIL =================
-def is_url(u): return re.match(r"https?://", u)
+def is_url(u):
+    return re.match(r"https?://", u)
 
 def bar(p):
     p = int(p)
@@ -39,7 +41,7 @@ def bar(p):
     return "█" * done + "░" * (10 - done)
 
 def hsize(b):
-    for u in ["B","KB","MB","GB"]:
+    for u in ["B", "KB", "MB", "GB"]:
         if b < 1024:
             return f"{b:.2f}{u}"
         b /= 1024
@@ -54,12 +56,14 @@ def storage():
     return hsize(d.used), hsize(d.free)
 
 def is_image(url):
-    return any(url.lower().endswith(x) for x in [".jpg",".jpeg",".png",".webp"])
+    return any(url.lower().endswith(x) for x in [".jpg", ".jpeg", ".png", ".webp"])
 
 def control_buttons(paused=False):
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("▶ Resume" if paused else "⏸ Pause",
-                             callback_data="resume_dl" if paused else "pause_dl"),
+        InlineKeyboardButton(
+            "▶ Resume" if paused else "⏸ Pause",
+            callback_data="resume_dl" if paused else "pause_dl"
+        ),
         InlineKeyboardButton("❌ Cancel", callback_data="cancel_dl")
     ]])
 
@@ -88,16 +92,16 @@ async def start(_, m: Message):
 async def cb(_, q: CallbackQuery):
     uid = q.from_user.id
 
-    if q.data in ["video","audio","photo"]:
+    if q.data in ["video", "audio", "photo"]:
         user_mode[uid] = q.data
 
         if q.data == "video":
             await q.message.edit_text(
                 "Select quality",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("360p","v360"),
-                    InlineKeyboardButton("720p","v720"),
-                    InlineKeyboardButton("1080p","v1080")
+                    InlineKeyboardButton("360p", "v360"),
+                    InlineKeyboardButton("720p", "v720"),
+                    InlineKeyboardButton("1080p", "v1080")
                 ]])
             )
         elif q.data == "photo":
@@ -133,9 +137,7 @@ async def cb(_, q: CallbackQuery):
 
 # ================= MAIN =================
 @bot.on_message(
-    filters.private
-    & filters.text
-    & ~filters.command(["start", "help", "admin"])
+    filters.private & filters.text & ~filters.command(["start", "help", "admin"])
 )
 async def downloader(_, m: Message):
     global active_downloads
@@ -151,6 +153,7 @@ async def downloader(_, m: Message):
 
     interval = 0.5 if uid in premium_users else 1.5
     status = await m.reply_text("⏳ Starting...", reply_markup=control_buttons())
+
     active_downloads += 1
     start = time.time()
     last = 0
@@ -159,13 +162,14 @@ async def downloader(_, m: Message):
 
     def hook(d):
         nonlocal last
+
         if cancel_tasks.get(uid):
             raise Exception("Cancelled")
 
         while paused_tasks.get(uid):
-            time.sleep(1)
+            time.sleep(0.3)
 
-        if d["status"] == "downloading":
+        if d.get("status") == "downloading":
             now = time.time()
             if now - last < interval:
                 return
@@ -200,7 +204,11 @@ async def downloader(_, m: Message):
         ydl_opts = {
             "quiet": True,
             "progress_hooks": [hook],
-            "outtmpl": f"{DOWNLOAD_DIR}/%(id)s.%(ext)s"
+            "outtmpl": f"{DOWNLOAD_DIR}/%(id)s.%(ext)s",
+            "nocheckcertificate": True,
+            "ignoreerrors": True,
+            "retries": 5,
+            "fragment_retries": 5
         }
 
         if mode == "video":
@@ -214,7 +222,12 @@ async def downloader(_, m: Message):
             info = y.extract_info(url, download=True)
             file = y.prepare_filename(info)
 
-        await status.edit("📤 Uploading...", reply_markup=None)
+        if os.path.getsize(file) > 1.9 * 1024 * 1024 * 1024:
+            await status.edit("❌ File too large for Telegram")
+            os.remove(file)
+            return
+
+        await status.edit("📤 Uploading...")
         if mode == "video":
             await m.reply_video(file)
         else:
